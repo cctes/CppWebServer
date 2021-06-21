@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+  <head>
+    <meta charset="UTF-8">
+    <title>task6--Vue(实现模版渲染，数据绑定)</title>
+  </head>
+  <body>
+    <div id="app">
+      <p>姓名：{{user.name}}</p>
+      <p>年龄：{{user.age}}</p>
+    </div>
+  </body>
+  <script>
+    function Observer(data) {
+      this.data = data;
+      this.walk(data);
+      this.dep = new Dep();
+    }
+    Observer.prototype = {
+      walk: function(obj, path) {
+        let val;
+        for(let key in obj) {
+          if (obj.hasOwnProperty(key)) {
+            val = obj[key];
+            if(!path) {
+              path = key;
+            } else {
+              path = path + key;
+            }
+            if (typeof val === 'object') { // 属性值也可能是对象
+              new Observer(val);
+              if (path) path = path + '.';
+              this.walk(val, path);
+            }
+          }
+          this.defineReactive(obj, key, val, path);
+        }
+      },
+      defineReactive: function (obj, key, val, path) {
+        var self = this;
+        Object.defineProperty(obj, key, {
+          enumerable: true, // 可枚举
+          configurable: true, // 不能再define
+          get: function() {
+            // console.log('你访问了：'+ key);
+            return val;
+          },
+          set: function (newVal) {
+            console.log('你设置了'+key+'新的值为：'+ newVal);
+            val = newVal;
+            self.dep.notify(path || key);
+            // 如果newval是对象的话
+            if(typeof newVal === 'object') {
+              new Observer(val);
+            }
+          }
+        });
+      },
+      $watch: function(attr, callback) {
+        this.dep.add(attr, callback);
+      }
+    }
+    function Dep() {
+      this.subs = [];
+    }
+    Dep.prototype = {
+      add: function(attr, callback) {
+        if(this.subs[attr]){
+          this.subs[attr].push(callback);
+        }else{
+          this.subs[attr] = [callback];
+        }
+      },
+      notify: function(path) {
+        const keys = path.split('.');
+        var parent = '';
+        const depPaths = keys.map((key, index) => {
+          if (index == 0) {
+            return key;
+          } else {
+            let str = '';
+            while (index--) {
+              str = keys[index] + '.' + str;
+            }
+            return str + key;
+          }
+        });
+        depPaths.forEach((path) => {
+          const fns = this.subs[path];
+          if (fns && fns.length) {
+            fns.forEach(function(item) {
+              item();
+            });
+          }
+        });
+      },
+    }
+    function Compile(node, vm) {
+      if(node) {
+        this.$frag = this.nodeToFragment(node, vm);
+        this.compileElement(this.$frag, vm);
+        return this.$frag;
+      }
+    }
+    Compile.prototype = {
+      nodeToFragment: function(node, vm) {
+        var self = this;
+        var frag = document.createDocumentFragment();
+        var child;
+        while(child = node.firstChild) {
+          // if(self.isIgnorable(child)){
+              // node.removeChild(child);
+          // }else{
+              frag.appendChild(child);
+          // }
+          // self.compileElement(child, vm);
+          // frag.append(child); // 将所有子节点添加到fragment中
+        }
+        return frag;
+      },
+       //判断注释节点以及空格换行等
+      isIgnorable: function(node){
+          let regIgnorable = /^[\t\n\r]+/;
+          return (node.nodeType == 8) || ((node.nodeType == 3) && (regIgnorable.test(node.textContent)));
+      },
+      compileElement: function(node, vm) {
+        var reg = /\{\{(.*)\}\}/;
+        var that = this;
+        Array.from(node.childNodes).forEach((child) => {
+          if (child.nodeType === 1) {
+              that.compileElement(child,vm);
+          }
+          if (child.nodeType === 3) {
+              // that.compileTextNode(child,that.data);
+              // if(reg.test(node.textContent.trim())) {
+              //   // debugger;
+              //   var name = RegExp.$1; // 获取匹配到的字符串
+              //   name = name.trim().split('.');
+              //   // debugger;
+              //   var str = vm.data;
+              //   for(var i = 0; i<name.length; i++) {
+              //     // node.nodeValue = vm.data[name[i]]; // 将data的值赋给该node
+              //     str = str[name[i]];
+              //   }
+              //   node.nodeValue = str;
+              // }
+
+              let text = node.textContent.trim();
+              let exp = parseTextExp(text,vm.data);
+              node.textContent = exp;
+          }
+
+        });
+        /*
+        //节点类型为元素
+        if(node.nodeType === 1) {
+          // 处理节点属性
+          // debugger;
+          if (node.hasAttributes()) {
+              let attrs = node.attributes;
+              Array.from(attrs).forEach((attr) => {
+                  node.setAttribute(attr.name, attr.value);
+              });
+          }
+          // var attr = node.attributes;
+          // // 解析属性
+          // for(var i = 0; i < attr.length; i++ ) {
+          //   if(attr[i].nodeName == 'v-model') {
+          //     var name = attr[i].nodeValue; // 获取v-model绑定的属性名
+          //     node.addEventListener('input', function(e) {
+          //       // 给相应的data属性赋值，进而触发该属性的set方法
+          //        vm[name]= e.target.value;
+          //     });
+          //     node.value = vm[name]; // 将data的值赋给该node
+          //     node.removeAttribute('v-model');
+          //   }
+          // };
+        }
+        //节点类型为text
+        if(node.nodeType === 3) {
+        // debugger;
+        //   let nodeValue = node.nodeValue;
+        //   if (nodeValue === "") return;
+        //   let patt = /{{\w+}}/g;
+        //   let ret = nodeValue.match(patt);
+        //   if(ret) {
+        //     ret.forEach((value) => {
+        //       let property = value.replace(/[{}]/g, '');
+        //       debugger;
+        //       nodeValue = nodeValue.replace(value, this.$data[property]);
+        //     }, this);
+        //   }
+          if(reg.test(node.nodeValue)) {
+            let name = RegExp.$1; // 获取匹配到的字符串
+            name = name.trim().split('.');
+            var str = vm.data;
+            for(var i = 0; i<name.length; i++) {
+              // node.nodeValue = vm.data[name[i]]; // 将data的值赋给该node
+              str = str[name[i]];
+            }
+            node.nodeValue = str;
+          }
+          */
+        
+      },
+    }
+    //data一直传递到此函数，在次函数中将匹配的模版替换(和别人比改成了笨办法把，但是自己理解的比较清除)
+  function parseTextExp(text,data) {
+      let regText = /\{\{(.+?)\}\}/g;
+      let pieces = text.split(regText);
+      let matches = text.match(regText);
+      let result = [];
+      pieces.forEach(function (piece) {
+          if(matches && matches.indexOf('{{' + piece + '}}') > -1){ //包含模版的项
+            let properties = piece.split('.');
+            let datas = data;
+            properties.forEach(function(value){
+              datas = datas[value];
+            });
+            result.push(datas);
+          }else if(piece){ //正常项
+            result.push(piece);
+          }
+      });
+      return result.join('');
+      // if (!exp) {
+      //   return;
+      // }
+      // var regObj = /\{(.+?)\}/g;
+      // var regArr = /\[(.+?)\]/g;
+      // var result = [];
+      // if (regObj.test(exp)) {
+      //   var subExp = exp.replace(/[\s\{\}]/g, '').split(',');
+      //   subExp.forEach(function (sub) {
+      //     var key = '"' + sub.split(':')[0].replace(/['"`]/g, '') + ' "';
+      //     var value = sub.split(':')[1];
+      //     result.push('((' + value + ')?' + key + ':"")')
+      //   });
+      // } else if (regArr.test(exp)) {
+      //   var subExp = exp.replace(/[\s\[\]]/g, '').split(',');
+      // }
+      // return result.join('+');  // 拼成 (a?"acls ":"")+(b?"bcls ":"")的形式
+  }
+    var app1 = new Observer({
+      name: {
+        firstName: 'shaofeng',
+        lastName: 'liang'
+      },
+      age: 25
+    });
+    var app2 = new Observer({
+        university: 'bupt',
+        major: 'computer'
+    });
+    // 你需要实现 $watch 这个 API
+    // app1.$watch('age', function(age) {
+    //     console.log('我的年纪变了，现在已经是：'+age+'岁了')
+    // });
+    app1.$watch('name', function() {
+      console.log('我的姓名发生了变化，可能是姓氏变了，也可能是名字变了。');
+    });
+    app1.data.name.firstName = 'hahaha';
+    // 输出：我的姓名发生了变化，可能是姓氏变了，也可能是名字变了。
+    app1.data.name.lastName = 'blablabla';
+    // 输出：我的姓名发生了变化，可能是姓氏变了，也可能是名字变了。
+    // app2.data.university; // 你访问了 university
+    // document.write('你访问了'+ app2.data.university);
+    // app2.data.major = 'science'; // 你设置了 major，新的值为 science
+    function Vue(options) {
+      this.data = options.data;
+      var data = this.data;
+      new Observer(data);
+      var id = options.el;
+      var _dom = document.getElementById(id);
+      var dom =new Compile(_dom,this);
+      // 编译完成后，将dom返回到app中
+      _dom.appendChild(dom);
+    }
+    var vm = new Vue({
+      el: 'app',
+      data: {
+        user: {
+          name: 'youngwind',
+          age: 25
+        }
+      }
+    });
+  </script>
+</html>
